@@ -16,8 +16,18 @@ export type {
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
-export { init, reflectResponse, selectErrors, selectEvaluatedRoot } from './model.js'
+export { init, reflectResponse, selectErrors, selectEvaluatedRoot, selectIsQueryLoading } from './model.js'
 export type { EvaluatedRoot, Model } from './model.js'
+
+// ─── Tool provider (Query()/Mutation() support) ────────────────────────────────
+
+export { normalizeToolProvider } from './toolProvider.js'
+export type { ToolProviderInput } from './toolProvider.js'
+export { QueryManagerResource, managedResources } from './resources.js'
+export type { QueryManagerService } from './resources.js'
+export { subscriptions } from './subscriptions.js'
+export { FireMutation, InvalidateQuery } from './commands.js'
+export { buildMutationNodes, buildQueryNodes } from './query.js'
 
 // ─── Message / OutMessage ──────────────────────────────────────────────────────
 
@@ -45,7 +55,13 @@ export type {
   ElementNode,
   EvaluationContext,
   LibraryJSONSchema,
+  McpClientLike,
+  MutationNode,
+  MutationResult,
   OpenUIError,
   ParseResult,
+  QueryNode,
+  QuerySnapshot,
+  ToolProvider,
   ValidationError,
 } from '@openuidev/lang-core'

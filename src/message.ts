@@ -28,6 +28,21 @@ export const Message = defineMessageUnion({
     value: Schema.Unknown,
     shouldTriggerSaveCallback: Schema.Boolean,
   },
+  /** The QueryManager's query/mutation state changed (a fetch started, resolved, or failed). */
+  QuerySnapshotChanged: {
+    snapshot: Schema.Unknown,
+  },
+  /** The QueryManager finished connecting to the tool provider. */
+  AcquiredQueryManager: {},
+  /** The QueryManager was torn down (the tool provider was removed). */
+  ReleasedQueryManager: {},
+  /** The QueryManager failed to start. */
+  FailedAcquireQueryManager: {
+    error: Schema.String,
+  },
+  /** A Command finished with nothing for `update` to do — its effect already
+   *  surfaces through `QuerySnapshotChanged` once the QueryManager notifies. */
+  NoOp: {},
 })
 export type Message = typeof Message.Type
 

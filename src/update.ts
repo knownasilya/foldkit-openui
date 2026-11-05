@@ -6,15 +6,18 @@ import {
   type ActionPlan,
   type EvaluationContext,
 } from '@openuidev/lang-core'
+import type { Command } from 'foldkit/command'
 import type * as Update from 'foldkit/update'
+import { FireMutation, InvalidateQuery } from './commands.js'
 import type { Model } from './model.js'
 import { Message, OutMessage, type ActionConfig, type Message as MessageType, type OutMessage as OutMessageType } from './message.js'
+import type { QueryManagerService } from './resources.js'
 import * as Store from './store.js'
 import type { StoreState } from './store.js'
 
-type Return = Update.ReturnWithOutMessage<Model, MessageType, OutMessageType>
+type Return = Update.ReturnWithOutMessage<Model, MessageType, OutMessageType, QueryManagerService>
 
-/** Handles every Message a rendered component can dispatch. */
+/** Handles every Message a rendered component can dispatch, plus the QueryManager's lifecycle Messages. */
 export function update(model: Model, message: MessageType): Return {
   return Message.match(message, {
     SetFieldValue: ({ formName, componentType, name, value, shouldTriggerSaveCallback }) => {
@@ -25,13 +28,22 @@ export function update(model: Model, message: MessageType): Return {
     },
     TriggeredAction: ({ userMessage, formName, action }) =>
       runAction(model, userMessage, formName, action as ActionConfig | ActionPlan | undefined),
+    QuerySnapshotChanged: ({ snapshot }) => ({
+      model: { ...model, querySnapshot: snapshot as Model['querySnapshot'] },
+    }),
+    AcquiredQueryManager: () => ({ model: { ...model, queryManagerReady: true, queryManagerError: null } }),
+    ReleasedQueryManager: () => ({ model: { ...model, queryManagerReady: false, querySnapshot: null } }),
+    FailedAcquireQueryManager: ({ error }) => ({
+      model: { ...model, queryManagerReady: false, queryManagerError: error },
+    }),
+    NoOp: () => ({ model }),
   })
 }
 
-function toEvaluationContext(store: StoreState): EvaluationContext {
+function toEvaluationContext(model: Model, store: StoreState): EvaluationContext {
   return {
     getState: (name) => Store.get(store, name),
-    resolveRef: () => null,
+    resolveRef: (name) => model.querySnapshot?.[name] ?? null,
   }
 }
 
@@ -70,13 +82,24 @@ function runAction(
 
   let store = model.store
   const events: ActionEvent[] = []
+  const commands: Array<Command<MessageType, never, QueryManagerService>> = []
 
   for (const step of actionPlan.steps) {
     switch (step.type) {
-      case ACTION_STEPS.Run:
-        // Query()/Mutation() tool calls are out of scope for this renderer.
-        console.warn('[foldkit-openui] Action step "run" (Query/Mutation) is not supported; skipping.')
+      case ACTION_STEPS.Run: {
+        if (step.refType === 'mutation') {
+          const mutationStatement = model.parseResult?.mutationStatements.find(
+            (statement) => statement.statementId === step.statementId,
+          )
+          const evaluatedArgs = mutationStatement?.argsAST
+            ? (evaluate(mutationStatement.argsAST, toEvaluationContext(model, store)) as Record<string, unknown>)
+            : {}
+          commands.push(FireMutation({ statementId: step.statementId, args: evaluatedArgs }))
+        } else {
+          commands.push(InvalidateQuery({ statementId: step.statementId }))
+        }
         break
+      }
       case ACTION_STEPS.ToAssistant:
         events.push({
           type: BuiltinActionType.ContinueConversation,
@@ -96,7 +119,7 @@ function runAction(
         })
         break
       case ACTION_STEPS.Set: {
-        const value = evaluate(step.valueAST, toEvaluationContext(store))
+        const value = evaluate(step.valueAST, toEvaluationContext(model, store))
         store = Store.set(store, step.target, value)
         break
       }
@@ -111,6 +134,7 @@ function runAction(
   }
 
   const nextModel: Model = { ...model, store }
-  if (events.length === 0) return { model: nextModel }
-  return { model: nextModel, outMessage: OutMessage.ActionTriggered({ events }) }
+  if (events.length === 0 && commands.length === 0) return { model: nextModel }
+  if (events.length === 0) return { model: nextModel, commands }
+  return { model: nextModel, commands, outMessage: OutMessage.ActionTriggered({ events }) }
 }

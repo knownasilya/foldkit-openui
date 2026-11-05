@@ -134,9 +134,53 @@ const Card = defineComponent({
 })
 ```
 
+## Query() and Mutation()
+
+Pass a tool provider — an MCP-like client, or a plain map of tool name to handler — to `init`, and `Query()`/`Mutation()` statements in the model's output call it:
+
+```ts
+const openUI = OpenUI.init({
+  library,
+  toolProvider: {
+    get_users: (args) => fetch('/api/users?' + new URLSearchParams(args)).then((r) => r.json()),
+    create_ticket: (args) => fetch('/api/tickets', { method: 'POST', body: JSON.stringify(args) }).then((r) => r.json()),
+  },
+})
+```
+
+The live `QueryManager` this creates is a Foldkit **ManagedResource** with its own **Subscription** bridging its async state into the Model — lift both into your host's own config (`managedResources`/`subscriptions` on `Runtime.makeApplication`/`makeElement`), the same way you lift any Foldkit UI Submodel's resources:
+
+```ts
+import { Option } from 'effect'
+import * as ManagedResource from 'foldkit/managedResource'
+import * as Subscription from 'foldkit/subscription'
+
+const managedResources = ManagedResource.lift(OpenUI.managedResources)<Model, Message>({
+  read: (model) => Option.some(model.openUI),
+  toParentMessage: (message) => Message.GotOpenUI({ message }),
+})
+
+const subscriptions = Subscription.lift(OpenUI.subscriptions)<Model, Message>({
+  read: (model) => Option.some(model.openUI),
+  toParentMessage: (message) => Message.GotOpenUI({ message }),
+})
+
+Runtime.run(Runtime.makeApplication({ /* ...Model, init, update, view... */, managedResources, subscriptions, container }))
+```
+
+Without this, `toolProvider` is still normalized and stored, but no `QueryManager` ever acquires, so `Query()`/`Mutation()` statements just never resolve (their bound props stay `null`).
+
+A few things worth knowing:
+
+- `toolProvider` is normalized once at `init` and fixed for the Submodel's lifetime. To swap it, remount the Submodel (give `h.submodel` a new `slotId`) rather than reassigning the field — the `QueryManager` ManagedResource relies on it staying referentially stable so it doesn't needlessly tear down and reconnect.
+- A component bound to a `Query()` result (via a reference, e.g. `items = Query(...)` then `List(items)`) sees `null` until the first fetch resolves — not `undefined` — so a Zod `.default()` on that prop won't apply. Handle `null` explicitly in the component (`props.items ?? []`).
+- `isQueryLoading` on `ComponentRenderProps` (and the exported `selectIsQueryLoading(model)`) tells you whether any query is currently fetching, for a loading indicator.
+- The `@Run` action step is supported for both refs: on a query, it force-refetches (`invalidate`); on a mutation, it evaluates that `Mutation()` statement's own declared args and fires it. A mutation's result does not currently resolve through `resolveRef` into a component prop — only `Query()` results do; observe a mutation's effect through what it changes server-side (and the queries you refetch alongside it), not by binding its own result into a prop.
+- The form-validation composable layer `vue-lang` ships (`createFormValidation`, `builtInValidators`, …) is still out of scope.
+
 ## Example
 
-[`example/`](./example) is a small Vite + Foldkit app: a text area holds raw OpenUI Lang (standing in for a streaming LLM response), and the right pane re-renders live as you edit it, with fired actions and form-state changes logged below.
+[`example/`](./example) is a small Vite + Foldkit app: a text area holds raw OpenUI Lang (standing in for a streaming LLM response), and the right pane re-renders live as you edit it, with fired actions and form-state changes logged below. It also wires up a mock `toolProvider` so the `Query("get_items", {})` statement in the default source resolves to a real (fake) list, demonstrating the `ManagedResource`/`Subscription` lift described above.
 
 ```bash
 cd example
@@ -151,7 +195,9 @@ OpenUI Lang's parser, evaluator, and language semantics live entirely in `@openu
 - **No parser instance in the Model.** The reference renderers keep a `StreamParser` around and feed it each chunk incrementally. A Foldkit Model is expected to be plain, comparable, serializable data — not an object with internal mutable buffers — so `reflectResponse` instead calls the plain, non-streaming `createParser(...).parse(text)` on every change. OpenUI Lang's grammar is built to tolerate partial/truncated input by design (`meta.incomplete`), and the spec requires that streaming and one-shot parsing agree at every point, so this is a performance trade (full reparse vs. incremental) rather than a behavioral one.
 - **No `@openuidev/lang-core` `Store` instance.** That Store exists to bridge imperative `subscribe`/`notify` state into a host framework's own reactivity. Foldkit's Model *is* the reactivity system, so the binding reimplements the same `$state`/form-field semantics (see [`src/store.ts`](./src/store.ts)) as plain, immutable data on the Model instead of wrapping a second mutable store next to it.
 
-**Out of scope for now:** `Query()`/`Mutation()` tool-provider wiring (action `run` steps log a warning and are otherwise skipped) and the form-validation composable layer `vue-lang` ships. Parsing, streaming semantics, component rendering, actions, and form state are fully supported.
+- **An explicit `queryManagerReady` flag, not just `toolProvider !== null`.** `toolProvider` is set (non-null) from `init` on, but the `QueryManager` ManagedResource still has to actually acquire — an async step. The Subscriptions that evaluate queries and bridge the QueryManager's updates gate on `queryManagerReady` (flipped by the `AcquiredQueryManager`/`ReleasedQueryManager` Messages), not on `toolProvider`'s presence; gating on the latter looks right but races the acquisition, since Foldkit Subscriptions only re-run when their *declared dependencies* change; see [`src/subscriptions.ts`](./src/subscriptions.ts).
+
+Parsing, streaming semantics, component rendering, actions, form state, and `Query()`/`Mutation()` are all fully supported. The form-validation composable layer `vue-lang` ships (`createFormValidation`, `builtInValidators`, …) is still out of scope — see [Query() and Mutation()](#query-and-mutation) below for the one Mutation limitation.
 
 ## API
 
@@ -159,7 +205,7 @@ OpenUI Lang's parser, evaluator, and language semantics live entirely in `@openu
 | :--- | :--- |
 | `defineComponent(config)` | Define a component: name, Zod props schema, description, Foldkit renderer |
 | `createLibrary({ components, root? })` | Build a `Library` from an array of defined components |
-| `init({ library, initialState? })` | The Submodel's initial `Model` |
+| `init({ library, initialState?, toolProvider? })` | The Submodel's initial `Model` |
 | `reflectResponse(model, { response, isStreaming })` | Conform the Model to response text your app owns (see [`Reflect`](https://foldkit.dev)) |
 | `update(model, message)` | The Submodel's update function |
 | `view` | The Submodel's `SubmodelView`, for `h.submodel` |
@@ -168,8 +214,12 @@ OpenUI Lang's parser, evaluator, and language semantics live entirely in `@openu
 | `renderNode(value, model, h)` / `renderElementNode(node, model, h)` | The recursive renderer, for manual/advanced use |
 | `asChildren(renderResult)` | Flattens a `renderNode` result into a children array for a container component |
 | `Message`, `OutMessage` | The Submodel's internal Message union and its reported-to-parent OutMessage union |
+| `selectIsQueryLoading(model)` | Whether any `Query()` is currently fetching |
+| `managedResources` | The `QueryManager` `ManagedResource` — lift with `ManagedResource.lift` into your host |
+| `subscriptions` | The Subscriptions that evaluate queries/mutations and bridge the `QueryManager`'s updates — lift with `Subscription.lift` |
+| `normalizeToolProvider(input)` | Normalizes an MCP-like client or a tool-name-to-handler map into `@openuidev/lang-core`'s `ToolProvider` shape (`init`'s `toolProvider` option calls this for you) |
 
-Plus re-exports of the `@openuidev/lang-core` pieces you'll touch directly: `createParser`, `evaluate`, `evaluateElementProps`, `BuiltinActionType`, and the `ElementNode`/`ParseResult`/`ActionEvent`/`ActionPlan`/`OpenUIError` types.
+Plus re-exports of the `@openuidev/lang-core` pieces you'll touch directly: `createParser`, `evaluate`, `evaluateElementProps`, `BuiltinActionType`, and the `ElementNode`/`ParseResult`/`ActionEvent`/`ActionPlan`/`OpenUIError`/`ToolProvider`/`McpClientLike`/`QuerySnapshot`/`QueryNode`/`MutationNode`/`MutationResult` types.
 
 ## License
 

@@ -1,7 +1,9 @@
-import { Schema } from 'effect'
+import { Option, Schema } from 'effect'
 import * as OpenUI from 'foldkit-openui'
 import { Html, Runtime } from 'foldkit'
+import * as ManagedResource from 'foldkit/managedResource'
 import { defineMessageUnion } from 'foldkit/message'
+import * as Subscription from 'foldkit/subscription'
 import { demoLibrary } from './library.js'
 
 const INITIAL_SOURCE = [
@@ -9,8 +11,19 @@ const INITIAL_SOURCE = [
   'intro = Paragraph("This text area holds raw OpenUI Lang. Edit it and the preview re-renders immediately — this is what a streaming LLM response would drive, one chunk at a time.")',
   'form = TextField("name", "Your name")',
   'greetBtn = Button("Say hi", {type: "continue_conversation"})',
-  'root = Card("Demo", [header, intro, form, greetBtn])',
+  'items = Query("get_items", {})',
+  'itemsList = ItemList(items)',
+  'root = Card("Demo", [header, intro, form, greetBtn, itemsList])',
 ].join('\n')
+
+// A mock tool provider standing in for a real backend/MCP server, so the
+// Query() statement above has something to call.
+const toolProvider = {
+  async get_items(): Promise<string[]> {
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    return ['Apple', 'Banana', 'Cherry']
+  },
+}
 
 interface Model {
   readonly source: string
@@ -25,11 +38,11 @@ const Message = defineMessageUnion({
 type Message = typeof Message.Type
 
 function makeModel(source: string): Model {
-  return {
-    source,
-    openUI: OpenUI.reflectResponse(OpenUI.init({ library: demoLibrary }), { response: source, isStreaming: false }),
-    log: [],
-  }
+  const openUI = OpenUI.reflectResponse(OpenUI.init({ library: demoLibrary, toolProvider }), {
+    response: source,
+    isStreaming: false,
+  })
+  return { source, openUI, log: [] }
 }
 
 function describeOutMessage(outMessage: OpenUI.OutMessage): string {
@@ -75,12 +88,27 @@ function view(model: Model, h: Html.HtmlBuilder<Message>) {
   }
 }
 
+// Lift the OpenUI Submodel's ManagedResource (the live QueryManager) and
+// Subscription (bridging its updates into Messages) into this app's own
+// config — required for Query()/Mutation() support, optional otherwise.
+const managedResources = ManagedResource.lift(OpenUI.managedResources)<Model, Message>({
+  read: (model) => Option.some(model.openUI),
+  toParentMessage: (message) => Message.GotOpenUI({ message }),
+})
+
+const subscriptions = Subscription.lift(OpenUI.subscriptions)<Model, Message>({
+  read: (model) => Option.some(model.openUI),
+  toParentMessage: (message) => Message.GotOpenUI({ message }),
+})
+
 Runtime.run(
   Runtime.makeApplication({
     Model: Schema.Any,
     init: () => ({ model: makeModel(INITIAL_SOURCE) }),
     update,
     view,
+    managedResources,
+    subscriptions,
     container: document.getElementById('app'),
   }),
 )

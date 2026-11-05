@@ -2,6 +2,7 @@ import type { ActionPlan, ElementNode } from '@openuidev/lang-core'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import type { ComponentRenderProps, Library, RenderResult } from './library.js'
 import { Message, type ActionConfig, type Message as MessageType } from './message.js'
+import { selectIsQueryLoading } from './model.js'
 import * as Store from './store.js'
 import type { Model } from './model.js'
 
@@ -40,6 +41,7 @@ function buildRenderProps<P>(
     statementId: node.statementId,
     h,
     isStreaming: model.isStreaming,
+    isQueryLoading: selectIsQueryLoading(model),
     renderNode: (value) => renderNode(value, model, h),
     getFieldValue: (formName, name) => Store.getFieldValue(model.store, formName, name),
     triggerAction: (userMessage, formName, action) =>

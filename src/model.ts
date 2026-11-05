@@ -1,8 +1,18 @@
-import { createParser, evaluateElementProps, type ElementNode, type EvalContext, type OpenUIError, type ParseResult } from '@openuidev/lang-core'
+import {
+  createParser,
+  evaluateElementProps,
+  type ElementNode,
+  type EvalContext,
+  type OpenUIError,
+  type ParseResult,
+  type QuerySnapshot,
+} from '@openuidev/lang-core'
 import { Function as Fn } from 'effect'
 import type { Reflect } from 'foldkit/submodel'
 import type { Library } from './library.js'
 import { applyStateDeclarations, emptyStore, get as getStoreValue, type StoreState } from './store.js'
+import { normalizeToolProvider, type ToolProviderInput } from './toolProvider.js'
+import type { ToolProvider } from '@openuidev/lang-core'
 
 export interface Model {
   readonly library: Library
@@ -10,12 +20,20 @@ export interface Model {
   readonly isStreaming: boolean
   readonly parseResult: ParseResult | null
   readonly store: StoreState
+  /** Normalized once at `init`; stays referentially stable for the Submodel's lifetime so the QueryManager ManagedResource doesn't needlessly re-acquire. */
+  readonly toolProvider: ToolProvider | null
+  /** True once the QueryManager ManagedResource has actually finished acquiring — distinct from `toolProvider !== null`, which is true from `init` on, before acquisition completes. Subscriptions gate on this, not on `toolProvider`, so they re-run once the resource becomes available instead of racing it. */
+  readonly queryManagerReady: boolean
+  readonly querySnapshot: QuerySnapshot | null
+  readonly queryManagerError: string | null
 }
 
 /** Creates the initial Model. Call once when the host mounts the renderer. */
 export function init(options: {
   library: Library
   initialState?: Record<string, unknown>
+  /** An MCP-like client, or a map of tool name to handler, for `Query()`/`Mutation()` calls. Fixed for the Submodel's lifetime — pass a new one by remounting (a new `h.submodel` `slotId`), not by reassigning this field. */
+  toolProvider?: ToolProviderInput
 }): Model {
   let store = emptyStore
   if (options.initialState) {
@@ -29,6 +47,10 @@ export function init(options: {
     isStreaming: false,
     parseResult: null,
     store,
+    toolProvider: options.toolProvider ? normalizeToolProvider(options.toolProvider) : null,
+    queryManagerReady: false,
+    querySnapshot: null,
+    queryManagerError: null,
   }
 }
 
@@ -59,7 +81,7 @@ export interface EvaluatedRoot {
   readonly errors: ReadonlyArray<OpenUIError>
 }
 
-/** Evaluates the parsed root's props against the current store. Pure; safe to call every render. */
+/** Evaluates the parsed root's props against the current store and query/mutation results. Pure; safe to call every render. */
 export function selectEvaluatedRoot(model: Model): EvaluatedRoot {
   const parsedRoot = model.parseResult?.root ?? null
   if (!parsedRoot) return { root: null, errors: [] }
@@ -67,7 +89,7 @@ export function selectEvaluatedRoot(model: Model): EvaluatedRoot {
   const evalCtx: EvalContext = {
     ctx: {
       getState: (name) => getStoreValue(model.store, name),
-      resolveRef: () => null,
+      resolveRef: (name) => model.querySnapshot?.[name] ?? null,
     },
     library: model.library,
     store: null,
@@ -77,7 +99,12 @@ export function selectEvaluatedRoot(model: Model): EvaluatedRoot {
   return { root, errors }
 }
 
-/** All structured, LLM-friendly errors available for the current Model: parse + evaluation. */
+/** Whether any `Query()` is currently fetching. */
+export function selectIsQueryLoading(model: Model): boolean {
+  return (model.querySnapshot?.__openui_loading.length ?? 0) > 0
+}
+
+/** All structured, LLM-friendly errors available for the current Model: parse, evaluation, and query/mutation. */
 export function selectErrors(model: Model): ReadonlyArray<OpenUIError> {
   const parseErrors = model.parseResult?.meta.errors ?? []
   const parserErrors: OpenUIError[] = parseErrors.map((error) => ({
@@ -89,5 +116,9 @@ export function selectErrors(model: Model): ReadonlyArray<OpenUIError> {
     statementId: error.statementId,
   }))
   const { errors: runtimeErrors } = selectEvaluatedRoot(model)
-  return [...parserErrors, ...runtimeErrors]
+  const queryErrors = model.querySnapshot?.__openui_errors ?? []
+  const toolProviderErrors: OpenUIError[] = model.queryManagerError
+    ? [{ source: 'query', code: 'tool-error', message: model.queryManagerError }]
+    : []
+  return [...parserErrors, ...runtimeErrors, ...queryErrors, ...toolProviderErrors]
 }

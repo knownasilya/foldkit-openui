@@ -31,6 +31,8 @@ export interface ComponentRenderProps<P = Record<string, unknown>>
   readonly h: HtmlBuilder<Message>
   /** Whether the model is still streaming; components typically disable inputs while true. */
   readonly isStreaming: boolean
+  /** Whether any `Query()` is currently fetching; a component can use this to show a loading indicator. */
+  readonly isQueryLoading: boolean
   /** Read a form field's current value. Returns undefined if not set. */
   readonly getFieldValue: (formName: string | undefined, name: string) => unknown
   /** Build a Message that fires a structured action when dispatched. Accepts a component's evaluated `action` prop directly — a legacy `{ type, params }` config, a parsed `ActionPlan`, or neither. */

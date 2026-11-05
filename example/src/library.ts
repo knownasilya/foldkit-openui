@@ -51,6 +51,19 @@ export const Card = defineComponent({
     h.div([h.Class('card')], [h.h3([], [props.title]), ...asChildren(renderNode(props.children))]),
 })
 
+export const ItemList = defineComponent({
+  name: 'ItemList',
+  description: 'A list of strings, typically bound to a Query() result',
+  props: z.object({ items: z.array(z.string()).default([]) }),
+  component: ({ props, h, isQueryLoading }: ComponentRenderProps<{ items: string[] | null | undefined }>) => {
+    const items = props.items ?? []
+    return h.div([], [
+      isQueryLoading ? h.p([h.Class('loading')], ['Loading…']) : h.empty,
+      h.ul([], items.map((item, index) => h.keyed('li')(index, [], [item]))),
+    ])
+  },
+})
+
 export const demoLibrary = createLibrary({
-  components: [Heading, Paragraph, Button, TextField, Card],
+  components: [Heading, Paragraph, Button, TextField, Card, ItemList],
 })

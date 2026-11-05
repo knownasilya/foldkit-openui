@@ -109,4 +109,56 @@ describe('update', () => {
     }))
     expect(reset.model.store.snapshot.$count).toBe(0)
   })
+
+  it('fires a mutation command with evaluated args from the matching Mutation() statement', () => {
+    const base = modelFor('root = Greeting("World")')
+    const model = {
+      ...base,
+      parseResult: {
+        ...base.parseResult!,
+        mutationStatements: [
+          {
+            statementId: 'createItem',
+            toolAST: { k: 'Str' as const, v: 'create_item' },
+            argsAST: { k: 'Obj' as const, entries: [['name', { k: 'StateRef' as const, n: '$name' }]] as [string, import('@openuidev/lang-core').ASTNode][] },
+          },
+        ],
+      },
+      store: { snapshot: { $name: 'Widget' }, pristineKeys: {} },
+    }
+
+    const plan: ActionPlan = { steps: [{ type: 'run', statementId: 'createItem', refType: 'mutation' }] }
+    const result = update(model, Message.TriggeredAction({ userMessage: 'Create', action: plan }))
+
+    expect(result.commands).toHaveLength(1)
+    expect(result.commands?.[0]).toMatchObject({
+      name: 'FireMutation',
+      args: { statementId: 'createItem', args: { name: 'Widget' } },
+    })
+  })
+
+  it('invalidates a query via a run step with refType "query"', () => {
+    const model = modelFor('root = Greeting("World")')
+    const plan: ActionPlan = { steps: [{ type: 'run', statementId: 'users', refType: 'query' }] }
+    const result = update(model, Message.TriggeredAction({ userMessage: 'Refresh', action: plan }))
+
+    expect(result.commands).toHaveLength(1)
+    expect(result.commands?.[0]).toMatchObject({
+      name: 'InvalidateQuery',
+      args: { statementId: 'users' },
+    })
+  })
+
+  it('stores the query snapshot on QuerySnapshotChanged', () => {
+    const model = modelFor('root = Greeting("World")')
+    const snapshot = { __openui_loading: [], __openui_refetching: [], __openui_errors: [], users: [1, 2, 3] }
+    const result = update(model, Message.QuerySnapshotChanged({ snapshot }))
+    expect(result.model.querySnapshot).toEqual(snapshot)
+  })
+
+  it('records a failed QueryManager acquisition as a surfaced error', () => {
+    const model = modelFor('root = Greeting("World")')
+    const result = update(model, Message.FailedAcquireQueryManager({ error: 'offline' }))
+    expect(result.model.queryManagerError).toBe('offline')
+  })
 })
