@@ -39,7 +39,7 @@
   "homepage": "https://github.com/knownasilya/foldkit-openui",
   "repository": {
     "type": "git",
-    "url": "https://github.com/knownasilya/foldkit-openui.git"
+    "url": "git+https://github.com/knownasilya/foldkit-openui.git"
   },
   "bugs": {
     "url": "https://github.com/knownasilya/foldkit-openui/issues"
