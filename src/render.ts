@@ -1,6 +1,14 @@
-import type { ActionPlan, ElementNode } from '@openuidev/lang-core'
+import {
+  ACTION_STEPS,
+  evaluate,
+  isReactiveAssign,
+  type ActionPlan,
+  type ASTNode,
+  type ElementNode,
+  type EvaluationContext,
+} from '@openuidev/lang-core'
 import type { Html, HtmlBuilder } from 'foldkit/html'
-import type { ComponentRenderProps, Library, RenderResult } from './library.js'
+import type { ComponentRenderProps, Library, RenderResult, StateField } from './library.js'
 import { Message, type ActionConfig, type Message as MessageType } from './message.js'
 import { selectIsQueryLoading } from './model.js'
 import * as Store from './store.js'
@@ -48,6 +56,69 @@ function buildRenderProps<P>(
       Message.TriggeredAction({ userMessage, formName, action: action as ActionConfig | ActionPlan | undefined }),
     setFieldValue: (formName, componentType, name, value, shouldTriggerSaveCallback = true) =>
       Message.SetFieldValue({ formName, componentType, name, value, shouldTriggerSaveCallback }),
+    stateField: (name, bindingValue, componentType) => resolveStateField(model, name, bindingValue, componentType),
+  }
+}
+
+/** A plain JS value as a literal AST node, so it can ride in a `Set` step. */
+function toLiteralAST(value: unknown): ASTNode {
+  if (typeof value === 'string') return { k: 'Str', v: value }
+  if (typeof value === 'number') return { k: 'Num', v: value }
+  if (typeof value === 'boolean') return { k: 'Bool', v: value }
+  if (Array.isArray(value)) return { k: 'Arr', els: value.map(toLiteralAST) }
+  if (value !== null && typeof value === 'object') {
+    return { k: 'Obj', entries: Object.entries(value).map(([key, entry]): [string, ASTNode] => [key, toLiteralAST(entry)]) }
+  }
+  return { k: 'Null' }
+}
+
+/**
+ * One Message that writes `value` to `target`, then runs `then`'s steps.
+ * Without a `then` plan it is a plain `SetFieldValue`, which also reports
+ * `StateChanged` like any other field edit.
+ */
+function writeThen(
+  target: string,
+  value: unknown,
+  componentType: string | undefined,
+  then: ActionConfig | ActionPlan | undefined,
+): MessageType {
+  const steps = then && 'steps' in then ? then.steps : undefined
+  if (!steps) {
+    return Message.SetFieldValue({ formName: undefined, componentType, name: target, value, shouldTriggerSaveCallback: true })
+  }
+  const plan: ActionPlan = { steps: [{ type: ACTION_STEPS.Set, target, valueAST: toLiteralAST(value) }, ...steps] }
+  return Message.TriggeredAction({ userMessage: '', formName: undefined, action: plan })
+}
+
+function resolveStateField<T>(
+  model: Model,
+  name: string,
+  bindingValue: unknown,
+  componentType: string | undefined,
+): StateField<T> {
+  if (isReactiveAssign(bindingValue)) {
+    const { target, expr } = bindingValue
+    const context: EvaluationContext = {
+      getState: (stateName) => Store.get(model.store, stateName),
+      resolveRef: (refName) => model.querySnapshot?.[refName] ?? null,
+    }
+    return {
+      name,
+      value: Store.get(model.store, target) as T | undefined,
+      // `expr` is `$value` for a plain `$var` argument, or the right-hand
+      // side of an inline `$var = <expr>` assignment.
+      setValue: (value, then) =>
+        writeThen(target, evaluate(expr, { ...context, extraScope: { $value: value } }), componentType, then),
+      isReactive: true,
+    }
+  }
+  const stored = Store.getFieldValue(model.store, undefined, name)
+  return {
+    name,
+    value: (stored ?? bindingValue) as T | undefined,
+    setValue: (value, then) => writeThen(name, value, componentType, then),
+    isReactive: false,
   }
 }
 

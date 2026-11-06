@@ -1,7 +1,7 @@
 // ─── Component definition ────────────────────────────────────────────────────
 
 export { tagSchemaId } from '@openuidev/lang-core'
-export { createLibrary, defineComponent } from './library.js'
+export { createLibrary, defineComponent, reactive } from './library.js'
 export type {
   ComponentGroup,
   ComponentRenderer,
@@ -11,6 +11,7 @@ export type {
   LibraryDefinition,
   PromptOptions,
   RenderResult,
+  StateField,
   SubComponentOf,
 } from './library.js'
 

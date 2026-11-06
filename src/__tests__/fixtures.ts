@@ -2,7 +2,7 @@ import type { ActionPlan } from '@openuidev/lang-core'
 import { z } from 'zod'
 import type { ActionConfig } from '../message.js'
 import { asChildren } from '../render.js'
-import { createLibrary, defineComponent, type ComponentRenderProps } from '../library.js'
+import { createLibrary, defineComponent, reactive, type ComponentRenderProps } from '../library.js'
 
 export const Greeting = defineComponent({
   name: 'Greeting',
@@ -45,6 +45,34 @@ export const Card = defineComponent({
     h.div([h.Class('card')], [h.h2([], [props.title]), ...asChildren(renderNode(props.children))]),
 })
 
+export const BoundInput = defineComponent({
+  name: 'BoundInput',
+  description: 'A text input with a two-way $binding',
+  props: z.object({ name: z.string(), value: reactive(z.string().optional()) }),
+  component: ({ props, h, stateField }: ComponentRenderProps<{ name: string; value?: unknown }>) => {
+    const field = stateField<string>(props.name, props.value, 'BoundInput')
+    return h.input([h.Name(props.name), h.Value(field.value ?? ''), h.OnInput((value) => field.setValue(value))])
+  },
+})
+
+export const BoundToggle = defineComponent({
+  name: 'BoundToggle',
+  description: 'A checkbox with a two-way $binding that can also run an action',
+  props: z.object({ label: z.string(), checked: reactive(z.boolean().optional()), action: z.unknown().optional() }),
+  component: ({ props, h, stateField }: ComponentRenderProps<{ label: string; checked?: unknown; action?: unknown }>) => {
+    const field = stateField<boolean>(props.label, props.checked, 'BoundToggle')
+    const checked = field.value === true
+    return h.label([], [
+      h.input([
+        h.Type('checkbox'),
+        h.Checked(checked),
+        h.OnClick(field.setValue(!checked, props.action as ActionPlan | undefined)),
+      ]),
+      props.label,
+    ])
+  },
+})
+
 export const testLibrary = createLibrary({
-  components: [Greeting, Button, TextInput, Card],
+  components: [Greeting, Button, TextInput, Card, BoundInput, BoundToggle],
 })

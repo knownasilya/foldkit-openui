@@ -124,6 +124,7 @@ const view = (model: Model, h) =>
 | `getFieldValue` | `(formName, name) => unknown` | Read a form field's current value |
 | `triggerAction` | `(userMessage, formName?, action?) => Message` | Build a Message for `h.OnClick`, etc. |
 | `setFieldValue` | `(formName, componentType, name, value, shouldSave?) => Message` | Build a Message for `h.OnInput`, etc. |
+| `stateField` | `(name, bindingValue, componentType?) => StateField` | Resolve a `reactive()` prop to its value and a writer (see [Two-way bindings](#two-way-bindings)) |
 
 `triggerAction`/`setFieldValue` **build** Messages — they don't dispatch anything themselves. Bind the result to an event: `h.OnClick(triggerAction(...))`. When `update` handles that Message, it may return an `OutMessage`:
 
@@ -143,6 +144,26 @@ const Card = defineComponent({
     h.div([h.Class('card')], [h.h2([], [props.title]), ...asChildren(renderNode(props.children))]),
 })
 ```
+
+### Two-way bindings
+
+Wrap a prop's schema in `reactive()` to make it bindable. The prompt shows it as `$binding<type>`, and the model can pass a `$variable` to it: `Input("title", $title)`. Wrap the outermost schema, after `.optional()` or `.default()`.
+
+In the renderer, `stateField` turns the prop into a value and a writer. With a `$variable` bound, it reads and writes that variable. Otherwise it falls back to the form field called `name`, then to the literal prop:
+
+```ts
+const Input = defineComponent({
+  name: 'Input',
+  description: 'A text input',
+  props: z.object({ name: z.string(), value: reactive(z.string().optional()) }),
+  component: ({ props, h, stateField }) => {
+    const field = stateField<string>(props.name, props.value, 'Input')
+    return h.input([h.Value(field.value ?? ''), h.OnInput((value) => field.setValue(value))])
+  },
+})
+```
+
+Anything that reads `$title` sees the new value on the next render: a `Text($title)`, a ternary, or a `Mutation("add_todo", {title: $title})`. `field.setValue(value, action)` also takes an `ActionPlan`. It writes the value first and then runs the plan, in one Message, so a `Mutation()` in that plan gets the new value in its args. A checkbox that saves on click uses this.
 
 ## Query() and Mutation()
 
@@ -240,6 +261,7 @@ Parsing, streaming semantics, component rendering, actions, form state, and `Que
 | :--- | :--- |
 | `defineComponent(config)` | Define a component: name, Zod props schema, description, Foldkit renderer |
 | `createLibrary({ components, root? })` | Build a `Library` from an array of defined components |
+| `reactive(schema)` | Mark a prop schema as two-way bindable to a `$variable` (see [Two-way bindings](#two-way-bindings)) |
 | `init({ library, initialState?, toolProvider? })` | The Submodel's initial `Model` |
 | `reflectResponse(model, { response, isStreaming })` | Conform the Model to response text your app owns (see [`Reflect`](https://foldkit.dev)) |
 | `update(model, message)` | The Submodel's update function |
