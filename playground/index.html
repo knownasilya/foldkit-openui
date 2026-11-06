@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>foldkit-openui playground</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color-scheme: light dark;
+        --color-primary: #3b82f6;
+        --color-secondary: #8b5cf6;
+        --color-success: #22c55e;
+        --color-info: #0ea5e9;
+        --color-warning: #f59e0b;
+        --color-error: #ef4444;
+        --color-neutral: light-dark(#3f3f46, #d4d4d8);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: light-dark(#fff, #0b0b0d);
+        color: light-dark(#18181b, #e4e4e7);
+      }
+      .app {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid light-dark(#e4e4e7, #27272a);
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .title {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+      }
+      .logo {
+        font-weight: 700;
+        font-size: 1.1rem;
+      }
+      .tagline {
+        color: light-dark(#71717a, #a1a1aa);
+        font-size: 0.85rem;
+      }
+      header nav {
+        display: flex;
+        gap: 1rem;
+      }
+      header nav a {
+        color: light-dark(#3f3f46, #d4d4d8);
+        text-decoration: none;
+        font-size: 0.85rem;
+      }
+      header nav a:hover {
+        color: var(--color-primary);
+      }
+      .presets {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-bottom: 1px solid light-dark(#e4e4e7, #27272a);
+        flex-wrap: wrap;
+      }
+      .preset {
+        border: none;
+        background: light-dark(#f4f4f5, #18181b);
+        color: inherit;
+        padding: 0.4rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .preset.active {
+        background: var(--color-primary);
+        color: white;
+      }
+      .panes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        flex: 1;
+        min-height: 0;
+      }
+      .pane {
+        padding: 1.5rem;
+        overflow: auto;
+      }
+      .pane + .pane {
+        border-left: 1px solid light-dark(#e4e4e7, #27272a);
+      }
+      .pane h1 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: light-dark(#71717a, #a1a1aa);
+        margin: 1.25rem 0 0.5rem;
+      }
+      .pane h1:first-child {
+        margin-top: 0;
+      }
+      textarea {
+        width: 100%;
+        height: 65vh;
+        box-sizing: border-box;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        padding: 0.75rem;
+        border: 1px solid light-dark(#e4e4e7, #27272a);
+        border-radius: 8px;
+        background: light-dark(#fafafa, #111113);
+        color: inherit;
+        resize: vertical;
+      }
+      .preview {
+        border: 1px solid light-dark(#e4e4e7, #27272a);
+        border-radius: 8px;
+        padding: 1rem;
+      }
+      .card {
+        border: 1px solid light-dark(#e4e4e7, #27272a);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+      }
+      .card h3:empty {
+        display: none;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .loading {
+        color: light-dark(#71717a, #a1a1aa);
+        font-size: 0.85rem;
+      }
+      .log {
+        font-family: ui-monospace, monospace;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        background: light-dark(#f4f4f5, #18181b);
+        padding: 0.75rem;
+        border-radius: 8px;
+        max-height: 20vh;
+        overflow: auto;
+      }
+
+      /* Nuxt UI-style Button (https://ui.nuxt.com/components/button) */
+      .nui-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        border: none;
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.875rem;
+        padding: 0.375rem 0.625rem;
+        cursor: pointer;
+        transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+      }
+      .nui-btn[data-color='primary'] { --c: var(--color-primary); }
+      .nui-btn[data-color='secondary'] { --c: var(--color-secondary); }
+      .nui-btn[data-color='success'] { --c: var(--color-success); }
+      .nui-btn[data-color='info'] { --c: var(--color-info); }
+      .nui-btn[data-color='warning'] { --c: var(--color-warning); }
+      .nui-btn[data-color='error'] { --c: var(--color-error); }
+      .nui-btn[data-color='neutral'] { --c: var(--color-neutral); }
+      .nui-btn[data-variant='solid'] { background: var(--c); color: white; }
+      .nui-btn[data-variant='solid']:hover { background: color-mix(in srgb, var(--c) 75%, transparent); }
+      .nui-btn[data-variant='outline'] { background: transparent; color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 50%, transparent); }
+      .nui-btn[data-variant='outline']:hover { background: color-mix(in srgb, var(--c) 10%, transparent); }
+      .nui-btn[data-variant='soft'] { background: color-mix(in srgb, var(--c) 10%, transparent); color: var(--c); }
+      .nui-btn[data-variant='soft']:hover { background: color-mix(in srgb, var(--c) 15%, transparent); }
+      .nui-btn[data-variant='subtle'] { background: color-mix(in srgb, var(--c) 10%, transparent); color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 25%, transparent); }
+      .nui-btn[data-variant='subtle']:hover { background: color-mix(in srgb, var(--c) 15%, transparent); }
+      .nui-btn[data-variant='ghost'] { background: transparent; color: var(--c); }
+      .nui-btn[data-variant='ghost']:hover { background: color-mix(in srgb, var(--c) 10%, transparent); }
+      .nui-btn[data-variant='link'] { background: transparent; color: var(--c); padding: 0; }
+      .nui-btn[data-variant='link']:hover { color: color-mix(in srgb, var(--c) 75%, transparent); }
+
+      /* Nuxt UI-style Badge (https://ui.nuxt.com/components/badge) */
+      .nui-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-weight: 500;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 6px;
+      }
+      .nui-badge[data-color='primary'] { --c: var(--color-primary); }
+      .nui-badge[data-color='secondary'] { --c: var(--color-secondary); }
+      .nui-badge[data-color='success'] { --c: var(--color-success); }
+      .nui-badge[data-color='info'] { --c: var(--color-info); }
+      .nui-badge[data-color='warning'] { --c: var(--color-warning); }
+      .nui-badge[data-color='error'] { --c: var(--color-error); }
+      .nui-badge[data-color='neutral'] { --c: var(--color-neutral); }
+      .nui-badge[data-variant='solid'] { background: var(--c); color: white; }
+      .nui-badge[data-variant='outline'] { background: transparent; color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 50%, transparent); }
+      .nui-badge[data-variant='soft'] { background: color-mix(in srgb, var(--c) 10%, transparent); color: var(--c); }
+      .nui-badge[data-variant='subtle'] { background: color-mix(in srgb, var(--c) 10%, transparent); color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 25%, transparent); }
+
+      input {
+        font: inherit;
+        padding: 0.375rem 0.5rem;
+        border: 1px solid light-dark(#e4e4e7, #27272a);
+        border-radius: 6px;
+        background: light-dark(#fff, #111113);
+        color: inherit;
+      }
+      @media (max-width: 760px) {
+        .panes {
+          grid-template-columns: 1fr;
+        }
+        .pane + .pane {
+          border-left: none;
+          border-top: 1px solid light-dark(#e4e4e7, #27272a);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
