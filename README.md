@@ -223,11 +223,13 @@ npm run dev
 
 ## Playground
 
-[`playground/`](./playground) is the deployed demo: presets, a live editor, and the rendered output. It also exposes [WebMCP](https://github.com/webmachinelearning/webmcp) tools on `navigator.modelContext`, so an AI agent running in the browser can build a layout itself. The header badge shows whether WebMCP is available. You need a browser with WebMCP enabled, or a WebMCP extension/polyfill.
+[`playground/`](./playground) is the deployed demo: a syntax-highlighted editor, the rendered output, and a highlighted action log. Its 36 components follow [Nuxt UI](https://ui.nuxt.com)'s names and its `color`/`variant`/`size` props: Button, Badge, Alert, Avatar, User, Card, Tabs, Table, Accordion, Stepper, Timeline, Progress, Input, Select, Checkbox, Switch, RadioGroup, Slider, and more. The presets show them working: a gallery, a settings form, a todo list, a kanban board with drag and drop, and a dashboard. The todo list and the board read and write a mock backend through `Query()` and `Mutation()` ([`playground/src/tools.ts`](./playground/src/tools.ts)).
+
+The playground also exposes [WebMCP](https://github.com/webmachinelearning/webmcp) tools on `navigator.modelContext`, so an AI agent running in the browser can build a layout itself. The header badge shows whether WebMCP is available. You need a browser with WebMCP enabled, or a WebMCP extension/polyfill.
 
 | Tool | What it does |
 | --- | --- |
-| `get_openui_lang_reference` | The OpenUI Lang system prompt for the playground's components, including the edit-mode rules and the mock `get_items`/`add_item` tools |
+| `get_openui_lang_reference` | The OpenUI Lang system prompt for the playground's components, including the edit-mode rules, the mock tools (items, todos, kanban cards), and the todo list as a worked example |
 | `get_layout` | Current source plus parser/runtime errors |
 | `set_layout` | Replace the whole program; returns errors |
 | `patch_layout` | Merge new or changed statements by name (`mergeStatements`), garbage-collecting unreachable ones; returns the merged source and errors |
