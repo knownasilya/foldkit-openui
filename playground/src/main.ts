@@ -1,12 +1,14 @@
-import { Option, Schema } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 import * as OpenUI from 'foldkit-openui'
 import { Html, Runtime } from 'foldkit'
+import * as Command from 'foldkit/command'
 import * as ManagedResource from 'foldkit/managedResource'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { playgroundLibrary } from './library.js'
 import { PRESETS } from './presets.js'
+import * as WebMcp from './webmcp.js'
 
 // A mock tool provider standing in for a real backend/MCP server, so the
 // Query()/Mutation() demo preset has something to call. State lives in this
@@ -37,14 +39,97 @@ interface Model {
   readonly source: string
   readonly openUI: OpenUI.Model
   readonly log: ReadonlyArray<string>
+  readonly webMcpAvailable: boolean
 }
 
 const Message = defineMessageUnion({
   SelectedPreset: { index: Schema.Number },
   EditedSource: { value: Schema.String },
   GotOpenUI: { message: Schema.Any },
+  /** An AI agent called one of the playground's WebMCP tools (see webmcp.ts). */
+  CalledAgentTool: { call: Schema.Any },
+  RepliedToAgent: {},
 })
 type Message = typeof Message.Type
+
+// The system prompt an agent reads (via the get_openui_lang_reference tool)
+// before writing a layout. `editMode` documents the statement-merge rules
+// patch_layout relies on; `tools` documents the mock Query()/Mutation() tools.
+const languageReference = () =>
+  playgroundLibrary.prompt({
+    editMode: true,
+    tools: [
+      {
+        name: 'get_items',
+        description: 'Returns the current list of items (strings).',
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'array', items: { type: 'string' } },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: 'add_item',
+        description: 'Appends a random item to the list and returns it.',
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: { item: { type: 'string' } } },
+      },
+    ],
+  })
+
+/** Hands a tool result back to the waiting agent — a side effect, so it runs as a Command, not inside `update`. */
+const ReplyToAgent = Command.define('ReplyToAgent', {
+  args: { reply: Schema.Any, result: Schema.Any },
+  messages: [Message.RepliedToAgent],
+  execute: ({ reply, result }) =>
+    Effect.sync(() => {
+      ;(reply as WebMcp.ToolCall['reply'])(result as WebMcp.ToolResult)
+      return Message.RepliedToAgent()
+    }),
+})
+
+function describeErrors(openUI: OpenUI.Model) {
+  return OpenUI.selectErrors(openUI).map(({ source, code, message, statementId, component, path }) => ({
+    source,
+    code,
+    message,
+    ...(statementId ? { statementId } : {}),
+    ...(component ? { component } : {}),
+    ...(path ? { path } : {}),
+  }))
+}
+
+/** Sets the editor source (as if typed), returning the new Model and the layout report sent back to the agent. */
+function applyAgentSource(model: Model, source: string, logLine: string) {
+  const openUI = OpenUI.reflectResponse(model.openUI, { response: source, isStreaming: false })
+  const errors = describeErrors(openUI)
+  const nextModel = { ...model, source, openUI, log: [...model.log, logLine] }
+  return { model: nextModel, result: WebMcp.jsonResult({ source, errors, ok: errors.length === 0 }) }
+}
+
+function handleAgentTool(model: Model, tool: WebMcp.ModelTool): { model: Model; result: WebMcp.ToolResult } {
+  switch (tool.name) {
+    case 'get_layout':
+      return { model, result: WebMcp.jsonResult({ source: model.source, errors: describeErrors(model.openUI) }) }
+    case 'get_action_log':
+      return { model, result: WebMcp.jsonResult(model.log) }
+    case 'set_layout':
+      return applyAgentSource(model, tool.source, '🤖 agent → set_layout')
+    case 'patch_layout': {
+      const merged = model.source.trim() ? OpenUI.mergeStatements(model.source, tool.patch) : tool.patch
+      return applyAgentSource(model, merged, `🤖 agent → patch_layout\n${tool.patch}`)
+    }
+    case 'load_preset': {
+      const index = PRESETS.findIndex((preset) => preset.name.toLowerCase() === tool.preset.toLowerCase())
+      if (index === -1) {
+        return {
+          model,
+          result: WebMcp.jsonResult({ error: `Unknown preset "${tool.preset}"`, presets: PRESETS.map((p) => p.name) }, true),
+        }
+      }
+      const loaded = applyAgentSource(model, PRESETS[index]!.source, `🤖 agent → load_preset("${PRESETS[index]!.name}")`)
+      return { ...loaded, model: { ...loaded.model, presetIndex: index } }
+    }
+  }
+}
 
 function makeOpenUIModel(source: string): OpenUI.Model {
   return OpenUI.reflectResponse(OpenUI.init({ library: playgroundLibrary, toolProvider }), {
@@ -56,7 +141,7 @@ function makeOpenUIModel(source: string): OpenUI.Model {
 function initialModel(): Model {
   const presetIndex = 0
   const source = PRESETS[presetIndex]!.source
-  return { presetIndex, source, openUI: makeOpenUIModel(source), log: [] }
+  return { presetIndex, source, openUI: makeOpenUIModel(source), log: [], webMcpAvailable: WebMcp.isWebMcpAvailable() }
 }
 
 function describeOutMessage(outMessage: OpenUI.OutMessage): string {
@@ -94,6 +179,12 @@ function update(model: Model, message: Message) {
       return { model: { ...model, source: value, openUI } }
     },
     GotOpenUI: ({ message }) => foldOpenUI(model, message as OpenUI.Message),
+    CalledAgentTool: ({ call }) => {
+      const { tool, reply } = call as WebMcp.ToolCall
+      const handled = handleAgentTool(model, tool)
+      return { model: handled.model, commands: [ReplyToAgent({ reply, result: handled.result })] }
+    },
+    RepliedToAgent: () => ({ model }),
   })
 }
 
@@ -105,6 +196,18 @@ function view(model: Model, h: Html.HtmlBuilder<Message>) {
         h.div([h.Class('title')], [
           h.span([h.Class('logo')], ['foldkit-openui']),
           h.span([h.Class('tagline')], ['Foldkit bindings for OpenUI Lang — playground']),
+          h.span(
+            [
+              h.Class(model.webMcpAvailable ? 'webmcp on' : 'webmcp'),
+              h.Attribute(
+                'title',
+                model.webMcpAvailable
+                  ? 'This page exposes WebMCP tools (navigator.modelContext): an in-browser AI agent can read the component library and build a layout here.'
+                  : 'WebMCP (navigator.modelContext) is not available in this browser. Use a browser with WebMCP enabled, or a WebMCP extension, to let an AI agent build layouts here.',
+              ),
+            ],
+            [model.webMcpAvailable ? '● WebMCP tools active' : '○ WebMCP unavailable'],
+          ),
         ]),
         h.nav([], [
           h.a([h.Attribute('href', 'https://github.com/knownasilya/foldkit-openui'), h.Attribute('target', '_blank')], ['GitHub']),
@@ -149,10 +252,20 @@ const managedResources = ManagedResource.lift(OpenUI.managedResources)<Model, Me
   toParentMessage: (message) => Message.GotOpenUI({ message }),
 })
 
-const subscriptions = Subscription.lift(OpenUI.subscriptions)<Model, Message>({
+const openUISubscriptions = Subscription.lift(OpenUI.subscriptions)<Model, Message>({
   read: (model) => Option.some(model.openUI),
   toParentMessage: (message) => Message.GotOpenUI({ message }),
 })
+
+// Registers the WebMCP tools once for the app's lifetime; each Model-dependent
+// call arrives as a CalledAgentTool Message.
+const webMcpSubscriptions = Subscription.make<Model, Message>()(() => ({
+  webMcpTools: Subscription.persistentEntry(
+    WebMcp.toolCalls({ languageReference, presets: PRESETS }, (call) => Message.CalledAgentTool({ call })),
+  ),
+}))
+
+const subscriptions = Subscription.aggregate(openUISubscriptions, webMcpSubscriptions)
 
 Runtime.run(
   Runtime.makeApplication({

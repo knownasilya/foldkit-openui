@@ -200,6 +200,27 @@ npm install
 npm run dev
 ```
 
+## Playground
+
+[`playground/`](./playground) is the deployed demo: presets, a live editor, and the rendered output. It also exposes [WebMCP](https://github.com/webmachinelearning/webmcp) tools on `navigator.modelContext`, so an AI agent running in the browser can build a layout itself. The header badge shows whether WebMCP is available. You need a browser with WebMCP enabled, or a WebMCP extension/polyfill.
+
+| Tool | What it does |
+| --- | --- |
+| `get_openui_lang_reference` | The OpenUI Lang system prompt for the playground's components, including the edit-mode rules and the mock `get_items`/`add_item` tools |
+| `get_layout` | Current source plus parser/runtime errors |
+| `set_layout` | Replace the whole program; returns errors |
+| `patch_layout` | Merge new or changed statements by name (`mergeStatements`), garbage-collecting unreachable ones; returns the merged source and errors |
+| `list_presets` / `load_preset` | Built-in example layouts |
+| `get_action_log` | Actions and state changes fired from the preview |
+
+Every call goes through the app's `update` as a Message, so agent edits and keyboard edits share one Model.
+
+```bash
+cd playground
+npm install
+npm run dev
+```
+
 ## Architecture
 
 OpenUI Lang's parser, evaluator, and language semantics live entirely in `@openuidev/lang-core`, framework-agnostic — this package only does the Foldkit-specific binding, the same division `vue-lang`/`react-lang` use. Two places this binding differs from the reference renderers, deliberately:

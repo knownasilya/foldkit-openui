@@ -49,7 +49,7 @@ export { asChildren, renderElementNode, renderNode } from './render.js'
 
 // ─── Re-exports from lang-core (parser, evaluation, types) ────────────────────
 
-export { BuiltinActionType, createLibrary as createCoreLibrary, createParser, evaluate, evaluateElementProps } from '@openuidev/lang-core'
+export { BuiltinActionType, createLibrary as createCoreLibrary, createParser, evaluate, evaluateElementProps, mergeStatements } from '@openuidev/lang-core'
 export type {
   ActionEvent,
   ActionPlan,
