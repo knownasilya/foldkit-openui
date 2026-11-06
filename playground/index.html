@@ -52,6 +52,18 @@
         color: light-dark(#71717a, #a1a1aa);
         font-size: 0.85rem;
       }
+      .webmcp {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        background: light-dark(#f4f4f5, #18181b);
+        color: light-dark(#71717a, #a1a1aa);
+        cursor: help;
+      }
+      .webmcp.on {
+        background: color-mix(in srgb, var(--color-success) 15%, transparent);
+        color: var(--color-success);
+      }
       header nav {
         display: flex;
         gap: 1rem;
