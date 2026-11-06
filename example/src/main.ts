@@ -4,6 +4,7 @@ import { Html, Runtime } from 'foldkit'
 import * as ManagedResource from 'foldkit/managedResource'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
+import * as Update from 'foldkit/update'
 import { demoLibrary } from './library.js'
 
 const INITIAL_SOURCE = [
@@ -52,17 +53,29 @@ function describeOutMessage(outMessage: OpenUI.OutMessage): string {
   })
 }
 
+// Folding the submodel's update through `Update.foldChild` — rather than
+// calling `OpenUI.update` directly and only copying back its `model` — is
+// required, not optional: a plain call silently drops the Commands a
+// TriggeredAction can return (FireMutation/InvalidateQuery/RunSteps), so a
+// button wired to a Mutation()/Query() `@Run` step would appear to do
+// nothing. foldChild lifts those Commands into this app's own batch.
+const foldOpenUI = Update.foldChild({
+  update: OpenUI.update,
+  read: (model: Model) => Option.some(model.openUI),
+  write: (model: Model, openUI: OpenUI.Model) => ({ ...model, openUI }),
+  toParentMessage: (message: OpenUI.Message): Message => Message.GotOpenUI({ message }),
+  foldOutMessage: (outMessage: OpenUI.OutMessage) => (model: Model) => ({
+    model: { ...model, log: [...model.log, describeOutMessage(outMessage)] },
+  }),
+})
+
 function update(model: Model, message: Message) {
   return Message.match(message, {
     EditedSource: ({ value }) => {
       const openUI = OpenUI.reflectResponse(model.openUI, { response: value, isStreaming: false })
       return { model: { ...model, source: value, openUI } }
     },
-    GotOpenUI: ({ message }) => {
-      const result = OpenUI.update(model.openUI, message as OpenUI.Message)
-      const log = result.outMessage ? [...model.log, describeOutMessage(result.outMessage)] : model.log
-      return { model: { ...model, openUI: result.model, log } }
-    },
+    GotOpenUI: ({ message }) => foldOpenUI(model, message as OpenUI.Message),
   })
 }
 

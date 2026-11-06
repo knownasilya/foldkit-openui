@@ -56,7 +56,7 @@ const systemPrompt = library.prompt({
 The renderer is a Foldkit **Submodel**: it has its own `Model`, `Message`, `update`, and `view`, and you embed it with `h.submodel` the same way you'd embed any Foldkit UI Submodel (a `Dialog`, a `Menu`, …).
 
 ```ts
-import { Schema } from 'effect'
+import { Option, Schema } from 'effect'
 import * as Update from 'foldkit/update'
 import { defineMessageUnion } from 'foldkit/message'
 import * as OpenUI from 'foldkit-openui'
@@ -76,17 +76,27 @@ const init = (): Update.Return<Model, Message> => ({
   model: { response: null, isStreaming: false, openUI: OpenUI.init({ library }) },
 })
 
+// Fold the Submodel's update with `Update.foldChild` rather than calling
+// `OpenUI.update` and copying back only its `model` — a plain call silently
+// drops any Commands a TriggeredAction returns (FireMutation/InvalidateQuery/
+// RunSteps for a Query()/Mutation() `@Run` step), so a button wired to one
+// would appear to do nothing. foldChild lifts those Commands into your own.
+const foldOpenUI = Update.foldChild({
+  update: OpenUI.update,
+  read: (model: Model) => Option.some(model.openUI),
+  write: (model: Model, openUI: OpenUI.Model) => ({ ...model, openUI }),
+  toParentMessage: (message: OpenUI.Message): Message => Message.GotOpenUI({ message }),
+  // outMessage is OpenUI.OutMessage.ActionTriggered({ events }) or
+  // OpenUI.OutMessage.StateChanged({ state }) — see "Actions and forms" below.
+  foldOutMessage: (outMessage) => (model) => ({ model }),
+})
+
 const update = (model: Model, message: Message) =>
   Message.match(message, {
     GotResponseChunk: ({ response, isStreaming }) => ({
       model: { ...model, response, isStreaming, openUI: OpenUI.reflectResponse(model.openUI, { response, isStreaming }) },
     }),
-    GotOpenUI: ({ message }) => {
-      const result = OpenUI.update(model.openUI, message)
-      // result.outMessage, when present, is OpenUI.OutMessage.ActionTriggered({ events })
-      // or OpenUI.OutMessage.StateChanged({ state }) — see "Actions and forms" below.
-      return { model: { ...model, openUI: result.model } }
-    },
+    GotOpenUI: ({ message }) => foldOpenUI(model, message),
   })
 
 const view = (model: Model, h) =>
@@ -120,7 +130,7 @@ const view = (model: Model, h) =>
 - `OutMessage.ActionTriggered({ events })` — one or more `ActionEvent`s (a legacy `{ type, params }` config, or every `ToAssistant`/`OpenUrl` step from an `ActionPlan`, in order). Continue the conversation, open a URL, etc.
 - `OutMessage.StateChanged({ state })` — the form-field store changed and `shouldTriggerSaveCallback` was `true`; persist it alongside the message if you want it restored on reload (pass it back as `OpenUI.init({ library, initialState })`).
 
-Fold the Submodel's update with `Update.foldChild` (or the `GotOpenUI` pattern shown above) to receive `OutMessage` in your own `update`.
+Fold the Submodel's update with `Update.foldChild`, as shown above, to receive `OutMessage` in your own `update` — and, just as importantly, to forward the Commands a `TriggeredAction` can return (see [Query() and Mutation()](#query-and-mutation)). Calling `OpenUI.update` directly and copying back only its `model` compiles fine but silently drops those Commands.
 
 For a container component, flatten a `renderNode` result with the exported `asChildren` helper:
 
@@ -170,12 +180,14 @@ Runtime.run(Runtime.makeApplication({ /* ...Model, init, update, view... */, man
 
 Without this, `toolProvider` is still normalized and stored, but no `QueryManager` ever acquires, so `Query()`/`Mutation()` statements just never resolve (their bound props stay `null`).
 
+**`@Run` only works if you fold the Submodel's update with `Update.foldChild`** (see [Actions and forms](#actions-and-forms)), not by calling `OpenUI.update` and copying back only its `model`. A button's `@Run(mutationRef)`/`@Run(queryRef)` steps reach the `QueryManager` through Commands (`FireMutation`/`InvalidateQuery`/`RunSteps`) that `update` returns alongside the new Model — a manual `GotOpenUI` handler that only does `{ model: { ...model, openUI: result.model } }` throws those away. The click still "succeeds" with no error and no effect, which makes this easy to miss until you go looking for why a mutation never fires.
+
 A few things worth knowing:
 
 - `toolProvider` is normalized once at `init` and fixed for the Submodel's lifetime. To swap it, remount the Submodel (give `h.submodel` a new `slotId`) rather than reassigning the field — the `QueryManager` ManagedResource relies on it staying referentially stable so it doesn't needlessly tear down and reconnect.
 - A component bound to a `Query()` result (via a reference, e.g. `items = Query(...)` then `List(items)`) sees `null` until the first fetch resolves — not `undefined` — so a Zod `.default()` on that prop won't apply. Handle `null` explicitly in the component (`props.items ?? []`).
 - `isQueryLoading` on `ComponentRenderProps` (and the exported `selectIsQueryLoading(model)`) tells you whether any query is currently fetching, for a loading indicator.
-- The `@Run` action step is supported for both refs: on a query, it force-refetches (`invalidate`); on a mutation, it evaluates that `Mutation()` statement's own declared args and fires it. A mutation's result does not currently resolve through `resolveRef` into a component prop — only `Query()` results do; observe a mutation's effect through what it changes server-side (and the queries you refetch alongside it), not by binding its own result into a prop.
+- The `@Run` action step is supported for both refs: on a query, it force-refetches (`invalidate`); on a mutation, it evaluates that `Mutation()` statement's own declared args and fires it. Multiple `@Run` steps in one `Action([...])` run **in order, each waited on before the next starts** (one combined `RunSteps` Command, not independent ones) — so `Action([@Run(createResult), @Run(data)])` is safe: the mutation's write completes before the query refetches it. A mutation's result does not currently resolve through `resolveRef` into a component prop — only `Query()` results do; observe a mutation's effect through what it changes server-side (and the queries you refetch alongside it), not by binding its own result into a prop.
 - The form-validation composable layer `vue-lang` ships (`createFormValidation`, `builtInValidators`, …) is still out of scope.
 
 ## Example

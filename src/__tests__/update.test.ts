@@ -132,8 +132,8 @@ describe('update', () => {
 
     expect(result.commands).toHaveLength(1)
     expect(result.commands?.[0]).toMatchObject({
-      name: 'FireMutation',
-      args: { statementId: 'createItem', args: { name: 'Widget' } },
+      name: 'RunSteps',
+      args: { steps: [{ statementId: 'createItem', refType: 'mutation', args: { name: 'Widget' } }] },
     })
   })
 
@@ -144,8 +144,37 @@ describe('update', () => {
 
     expect(result.commands).toHaveLength(1)
     expect(result.commands?.[0]).toMatchObject({
-      name: 'InvalidateQuery',
-      args: { statementId: 'users' },
+      name: 'RunSteps',
+      args: { steps: [{ statementId: 'users', refType: 'query' }] },
+    })
+  })
+
+  it('runs a mutation then a query refetch in order, as a single sequenced command (not two racing ones)', () => {
+    const base = modelFor('root = Greeting("World")')
+    const model = {
+      ...base,
+      parseResult: {
+        ...base.parseResult!,
+        mutationStatements: [{ statementId: 'createItem', toolAST: { k: 'Str' as const, v: 'create_item' }, argsAST: null }],
+      },
+    }
+    const plan: ActionPlan = {
+      steps: [
+        { type: 'run', statementId: 'createItem', refType: 'mutation' },
+        { type: 'run', statementId: 'items', refType: 'query' },
+      ],
+    }
+    const result = update(model, Message.TriggeredAction({ userMessage: 'Create', action: plan }))
+
+    expect(result.commands).toHaveLength(1)
+    expect(result.commands?.[0]).toMatchObject({
+      name: 'RunSteps',
+      args: {
+        steps: [
+          { statementId: 'createItem', refType: 'mutation', args: {} },
+          { statementId: 'items', refType: 'query' },
+        ],
+      },
     })
   })
 

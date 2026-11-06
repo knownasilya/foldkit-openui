@@ -26,7 +26,8 @@ export type { ToolProviderInput } from './toolProvider.js'
 export { QueryManagerResource, managedResources } from './resources.js'
 export type { QueryManagerService } from './resources.js'
 export { subscriptions } from './subscriptions.js'
-export { FireMutation, InvalidateQuery } from './commands.js'
+export { FireMutation, InvalidateQuery, RunSteps } from './commands.js'
+export type { RunStep } from './commands.js'
 export { buildMutationNodes, buildQueryNodes } from './query.js'
 
 // ─── Message / OutMessage ──────────────────────────────────────────────────────

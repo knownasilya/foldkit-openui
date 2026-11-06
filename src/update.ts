@@ -8,7 +8,7 @@ import {
 } from '@openuidev/lang-core'
 import type { Command } from 'foldkit/command'
 import type * as Update from 'foldkit/update'
-import { FireMutation, InvalidateQuery } from './commands.js'
+import { RunSteps, type RunStep } from './commands.js'
 import type { Model } from './model.js'
 import { Message, OutMessage, type ActionConfig, type Message as MessageType, type OutMessage as OutMessageType } from './message.js'
 import type { QueryManagerService } from './resources.js'
@@ -17,7 +17,16 @@ import type { StoreState } from './store.js'
 
 type Return = Update.ReturnWithOutMessage<Model, MessageType, OutMessageType, QueryManagerService>
 
-/** Handles every Message a rendered component can dispatch, plus the QueryManager's lifecycle Messages. */
+/**
+ * Handles every Message a rendered component can dispatch, plus the QueryManager's lifecycle Messages.
+ *
+ * Fold this with `Update.foldChild` in your host's own `update`, not a plain
+ * call that copies back only `.model` — this can return Commands (a
+ * `TriggeredAction`'s `@Run` steps fire `FireMutation`/`InvalidateQuery` via
+ * `RunSteps`), and a plain call silently drops them: the button "succeeds"
+ * with no error, but the mutation/query refetch never happens. See the
+ * package README's "Actions and forms" and "Query() and Mutation()" sections.
+ */
 export function update(model: Model, message: MessageType): Return {
   return Message.match(message, {
     SetFieldValue: ({ formName, componentType, name, value, shouldTriggerSaveCallback }) => {
@@ -82,7 +91,7 @@ function runAction(
 
   let store = model.store
   const events: ActionEvent[] = []
-  const commands: Array<Command<MessageType, never, QueryManagerService>> = []
+  const runSteps: RunStep[] = []
 
   for (const step of actionPlan.steps) {
     switch (step.type) {
@@ -94,9 +103,9 @@ function runAction(
           const evaluatedArgs = mutationStatement?.argsAST
             ? (evaluate(mutationStatement.argsAST, toEvaluationContext(model, store)) as Record<string, unknown>)
             : {}
-          commands.push(FireMutation({ statementId: step.statementId, args: evaluatedArgs }))
+          runSteps.push({ statementId: step.statementId, refType: 'mutation', args: evaluatedArgs })
         } else {
-          commands.push(InvalidateQuery({ statementId: step.statementId }))
+          runSteps.push({ statementId: step.statementId, refType: 'query' })
         }
         break
       }
@@ -132,6 +141,8 @@ function runAction(
       }
     }
   }
+
+  const commands: Array<Command<MessageType, never, QueryManagerService>> = runSteps.length > 0 ? [RunSteps({ steps: runSteps })] : []
 
   const nextModel: Model = { ...model, store }
   if (events.length === 0 && commands.length === 0) return { model: nextModel }
