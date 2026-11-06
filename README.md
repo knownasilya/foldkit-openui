@@ -221,6 +221,8 @@ npm install
 npm run dev
 ```
 
+It is live at <https://foldkit-openui-playground.knownasilya.workers.dev>. Each push to `main` that passes CI deploys it ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)). The workflow needs the `CLOUDFLARE_API_TOKEN` secret and the `CLOUDFLARE_ACCOUNT_ID` variable in the repo settings. To deploy by hand, run `npm run deploy` in `playground/`.
+
 ## Architecture
 
 OpenUI Lang's parser, evaluator, and language semantics live entirely in `@openuidev/lang-core`, framework-agnostic — this package only does the Foldkit-specific binding, the same division `vue-lang`/`react-lang` use. Two places this binding differs from the reference renderers, deliberately:

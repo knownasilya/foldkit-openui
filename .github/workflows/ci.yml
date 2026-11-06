@@ -1,0 +1,52 @@
+name: CI
+
+# Checks every PR and every push to main. A push to main that passes the
+# checks also deploys the playground to Cloudflare Workers.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel stale PR runs, but never cut a deploy short.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            playground/package-lock.json
+
+      # The prepare script builds the library into dist/, which the
+      # playground uses through its file:.. dependency.
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+      - run: npm ci
+        working-directory: playground
+      - run: npx tsc -p .
+        working-directory: playground
+      - run: npm run build
+        working-directory: playground
+
+      - name: Deploy playground
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: playground
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
