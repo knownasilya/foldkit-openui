@@ -124,6 +124,7 @@ const view = (model: Model, h) =>
 | `getFieldValue` | `(formName, name) => unknown` | Read a form field's current value |
 | `triggerAction` | `(userMessage, formName?, action?) => Message` | Build a Message for `h.OnClick`, etc. |
 | `setFieldValue` | `(formName, componentType, name, value, shouldSave?) => Message` | Build a Message for `h.OnInput`, etc. |
+| `stateField` | `(name, bindingValue, componentType?) => StateField` | Resolve a `reactive()` prop to its value and a writer (see [Two-way bindings](#two-way-bindings)) |
 
 `triggerAction`/`setFieldValue` **build** Messages — they don't dispatch anything themselves. Bind the result to an event: `h.OnClick(triggerAction(...))`. When `update` handles that Message, it may return an `OutMessage`:
 
@@ -143,6 +144,26 @@ const Card = defineComponent({
     h.div([h.Class('card')], [h.h2([], [props.title]), ...asChildren(renderNode(props.children))]),
 })
 ```
+
+### Two-way bindings
+
+Wrap a prop's schema in `reactive()` to make it bindable. The prompt shows it as `$binding<type>`, and the model can pass a `$variable` to it: `Input("title", $title)`. Wrap the outermost schema, after `.optional()` or `.default()`.
+
+In the renderer, `stateField` turns the prop into a value and a writer. With a `$variable` bound, it reads and writes that variable. Otherwise it falls back to the form field called `name`, then to the literal prop:
+
+```ts
+const Input = defineComponent({
+  name: 'Input',
+  description: 'A text input',
+  props: z.object({ name: z.string(), value: reactive(z.string().optional()) }),
+  component: ({ props, h, stateField }) => {
+    const field = stateField<string>(props.name, props.value, 'Input')
+    return h.input([h.Value(field.value ?? ''), h.OnInput((value) => field.setValue(value))])
+  },
+})
+```
+
+Anything that reads `$title` sees the new value on the next render: a `Text($title)`, a ternary, or a `Mutation("add_todo", {title: $title})`. `field.setValue(value, action)` also takes an `ActionPlan`. It writes the value first and then runs the plan, in one Message, so a `Mutation()` in that plan gets the new value in its args. A checkbox that saves on click uses this.
 
 ## Query() and Mutation()
 
@@ -202,11 +223,13 @@ npm run dev
 
 ## Playground
 
-[`playground/`](./playground) is the deployed demo: presets, a live editor, and the rendered output. It also exposes [WebMCP](https://github.com/webmachinelearning/webmcp) tools on `navigator.modelContext`, so an AI agent running in the browser can build a layout itself. The header badge shows whether WebMCP is available. You need a browser with WebMCP enabled, or a WebMCP extension/polyfill.
+[`playground/`](./playground) is the deployed demo: a syntax-highlighted editor, the rendered output, and a highlighted action log. Its 36 components follow [Nuxt UI](https://ui.nuxt.com)'s names and its `color`/`variant`/`size` props: Button, Badge, Alert, Avatar, User, Card, Tabs, Table, Accordion, Stepper, Timeline, Progress, Input, Select, Checkbox, Switch, RadioGroup, Slider, and more. The presets show them working: a gallery, a settings form, a todo list, a kanban board with drag and drop, and a dashboard. The todo list and the board read and write a mock backend through `Query()` and `Mutation()` ([`playground/src/tools.ts`](./playground/src/tools.ts)).
+
+The playground also exposes [WebMCP](https://github.com/webmachinelearning/webmcp) tools on `navigator.modelContext`, so an AI agent running in the browser can build a layout itself. The header badge shows whether WebMCP is available. You need a browser with WebMCP enabled, or a WebMCP extension/polyfill.
 
 | Tool | What it does |
 | --- | --- |
-| `get_openui_lang_reference` | The OpenUI Lang system prompt for the playground's components, including the edit-mode rules and the mock `get_items`/`add_item` tools |
+| `get_openui_lang_reference` | The OpenUI Lang system prompt for the playground's components, including the edit-mode rules, the mock tools (items, todos, kanban cards), and the todo list as a worked example |
 | `get_layout` | Current source plus parser/runtime errors |
 | `set_layout` | Replace the whole program; returns errors |
 | `patch_layout` | Merge new or changed statements by name (`mergeStatements`), garbage-collecting unreachable ones; returns the merged source and errors |
@@ -240,6 +263,7 @@ Parsing, streaming semantics, component rendering, actions, form state, and `Que
 | :--- | :--- |
 | `defineComponent(config)` | Define a component: name, Zod props schema, description, Foldkit renderer |
 | `createLibrary({ components, root? })` | Build a `Library` from an array of defined components |
+| `reactive(schema)` | Mark a prop schema as two-way bindable to a `$variable` (see [Two-way bindings](#two-way-bindings)) |
 | `init({ library, initialState?, toolProvider? })` | The Submodel's initial `Model` |
 | `reflectResponse(model, { response, isStreaming })` | Conform the Model to response text your app owns (see [`Reflect`](https://foldkit.dev)) |
 | `update(model, message)` | The Submodel's update function |

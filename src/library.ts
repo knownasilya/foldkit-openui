@@ -1,6 +1,7 @@
 import {
   createLibrary as coreCreateLibrary,
   defineComponent as coreDefineComponent,
+  markReactive,
   type ComponentRenderProps as CoreComponentRenderProps,
   type DefinedComponent as CoreDefinedComponent,
   type Library as CoreLibrary,
@@ -45,6 +46,43 @@ export interface ComponentRenderProps<P = Record<string, unknown>>
     value: unknown,
     shouldTriggerSaveCallback?: boolean,
   ) => Message
+  /**
+   * Resolves a prop declared with `reactive()` into its current value and a
+   * writer. Pass the prop's evaluated value as `bindingValue`: a `$variable`
+   * binding reads and writes that variable; anything else falls back to the
+   * form field called `name`, then to the literal value.
+   */
+  readonly stateField: <T = unknown>(name: string, bindingValue: unknown, componentType?: string) => StateField<T>
+}
+
+/** A two-way bindable value, from `ComponentRenderProps.stateField`. */
+export interface StateField<T = unknown> {
+  readonly name: string
+  /** The bound `$variable`'s value, else the form field's, else the literal prop. */
+  readonly value: T | undefined
+  /**
+   * Builds a Message that writes `value`. Pass an `ActionPlan` (a component's
+   * `action` prop) as `then` to run it right after the write, in the same
+   * Message — so a `Mutation()` in it sees the new value in its args.
+   */
+  readonly setValue: (value: T, then?: ActionConfig | ActionPlan) => Message
+  /** True when the prop is bound to a `$variable`. */
+  readonly isReactive: boolean
+}
+
+/**
+ * Marks a prop schema as two-way bindable. The prompt shows it as
+ * `$binding<type>`, and a `$variable` passed to it reaches the renderer as a
+ * binding that `stateField` resolves. Wrap the outermost schema, after
+ * `.optional()`/`.default()`:
+ *
+ * ```ts
+ * props: z.object({ name: z.string(), value: reactive(z.string().optional()) })
+ * ```
+ */
+export function reactive<T extends object>(schema: T): T {
+  markReactive(schema)
+  return schema
 }
 
 export type ComponentRenderer<P = Record<string, unknown>> = (args: ComponentRenderProps<P>) => RenderResult
