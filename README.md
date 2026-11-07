@@ -165,6 +165,58 @@ const Input = defineComponent({
 
 Anything that reads `$title` sees the new value on the next render: a `Text($title)`, a ternary, or a `Mutation("add_todo", {title: $title})`. `field.setValue(value, action)` also takes an `ActionPlan`. It writes the value first and then runs the plan, in one Message, so a `Mutation()` in that plan gets the new value in its args. A checkbox that saves on click uses this.
 
+### Versioning components
+
+Saved model output names its components, so it can outlive the version of a component it was written for. Keep old versions available to render it, and teach the model only the current ones.
+
+**Derive the new version from the old one.** `.extend()` keeps the old props, in order, and their `reactive()` markers. Add new props at the end: arguments are positional, so a new prop in the middle shifts every argument after it. The new renderer can call the old one, because a renderer is a plain function:
+
+```ts
+const InputV2 = defineComponent({
+  name: 'InputV2',
+  description: 'A text input with a leading icon',
+  props: Input.props.extend({ icon: z.string().optional() }),
+  component: (args) =>
+    args.h.div([args.h.Class('input-with-icon')], [
+      args.props.icon ? args.h.span([args.h.Class('icon')], [args.props.icon]) : args.h.empty,
+      ...asChildren(Input.component(args)),
+    ]),
+})
+```
+
+Give every component its own schema object. `defineComponent` tags the props schema with the component's name, so two components that share one object (`props: Input.props`) leave only the last name tagged, and the parser no longer knows the first. `.extend()`, `.pick()`, and `.omit()` all return a new object.
+
+**Change a component in place when old sources still fit.** If the new version only adds optional props at the end, keep the old name and replace the component:
+
+```ts
+const library = createLibrary({
+  root: v1.root,
+  componentGroups: v1.componentGroups,
+  components: Object.values({ ...v1.components, Input: InputWithIcon }),
+})
+```
+
+`createLibrary` keeps the last component with a given name, takes only a list, and does not copy `root`, `componentGroups`, or `id` from another library, so pass them again.
+
+**Keep both versions when the change breaks old sources.** Use two libraries: one that renders every version, and one that writes the prompt with only the current version. The prompt and the renderer do not have to share a library:
+
+```ts
+const current = [Card, Button, InputV2]
+
+// Parses and renders output that uses Input or InputV2.
+const renderLibrary = createLibrary({ id: 'render', root: 'Card', components: [...current, Input] })
+
+// The model only learns InputV2.
+const promptLibrary = createLibrary({ id: 'v2', root: 'Card', components: current })
+
+const openUI = OpenUI.init({ library: renderLibrary })
+const systemPrompt = promptLibrary.prompt()
+```
+
+A component that only the render library has is never suggested to the model, but old output that uses it still parses and renders. Remove it from the render library only when no saved output names it.
+
+A component that another one uses through `.ref` (for example a `SelectItem` inside a `Select`) is part of that component's schema. If you make a new version of the child, make a new version of the parent too, so that the prompt describes the new child.
+
 ## Query() and Mutation()
 
 Pass a tool provider — an MCP-like client, or a plain map of tool name to handler — to `init`, and `Query()`/`Mutation()` statements in the model's output call it:
